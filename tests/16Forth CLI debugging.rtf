@@ -1,0 +1,272 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2907
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 Menlo-Regular;\f1\fswiss\fcharset0 Helvetica;\f2\fnil\fcharset0 LucidaGrande;
+\f3\fmodern\fcharset0 Courier;\f4\fmodern\fcharset0 Courier-Oblique;\f5\fswiss\fcharset0 Helvetica-Bold;
+\f6\fnil\fcharset0 Menlo-Italic;}
+{\colortbl;\red255\green255\blue255;\red38\green28\blue31;\red0\green0\blue0;\red0\green0\blue0;
+}
+{\*\expandedcolortbl;;\cssrgb\c19782\c14668\c16176;\csgray\c0\c0;\cssrgb\c0\c0\c0;
+}
+{\*\listtable{\list\listtemplateid1\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat0\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid1\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid1}
+{\list\listtemplateid2\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat0\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid101\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid2}}
+{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}{\listoverride\listid2\listoverridecount0\ls2}}
+\margl1440\margr1440\vieww14560\viewh8400\viewkind0
+\deftab642
+\pard\tx642\pardeftab642\partightenfactor0
+
+\f0\fs26 \cf2 \cb3 \
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \cb1 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 1. Build the app\
+In Xcode:\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 Product 
+\f2 \uc0\u8594 
+\f1  Clean Build Folder (
+\f2 \uc0\u8679 \u8984 
+\f1 K) when the assembly changed a lot \
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 Product 
+\f2 \uc0\u8594 
+\f1  Build (
+\f2 \uc0\u8984 
+\f1 B)\
+\pard\pardeftab720\partightenfactor0
+\cf0 Or from Terminal (optional):\
+bash\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 cd /Users/thomaszimmer/Documents/XCodeProjects/16ForthCLI\
+\pard\pardeftab720\partightenfactor0
+
+\f4\i \cf0 # open the project and build in Xcode, or use xcodebuild if you use that
+\f3\i0 \
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 Your Run Script copies the binary to:\
+text\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 /Users/thomaszimmer/Documents/XCodeProjects/16ForthCLI/build/16ForthCLI\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+2. Start lldb on that binary\
+bash\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 cd /Users/thomaszimmer/Documents/XCodeProjects/16ForthCLI/build\
+lldb ./16ForthCLI\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+3. Set breakpoints (optional)\
+Examples:\
+text\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 breakpoint set --name XFILEOP\
+breakpoint set --name XFILESIZE\
+breakpoint set --name XCREATEFILE2\
+breakpoint set --name _kernel_cold_start\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 List breakpoints:\
+text\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 breakpoint list\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 Delete one:\
+text\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 breakpoint delete 1\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+4. Run\
+text\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 run\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 If lldb asks to kill an existing process: yYou should see Forth\'92s ok (or banner) in the lldb session.\
+\
+5. When stopped at a breakpoint\
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrt\brdrnil \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f5\b \cf0 Goal\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Command\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f1\b0 \cf0 Continue\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 c or continue\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Step one instruction\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 si\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Step over\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 ni\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Backtrace\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 bt\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Read registers\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 register read x0 x1 x2 x3 x4 x19 x20 x21 x22 x23\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Read one register\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 register read x22\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Memory as string\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 x/s $x4\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Memory as hex cells\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 x/8gx $x22\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Quit process, stay in lldb\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 process kill\cell \row
+
+\itap1\trowd \taflags1 \trgaph108\trleft-108 \trbrdrl\brdrnil \trbrdrt\brdrnil \trbrdrr\brdrnil 
+\clvertalc \clshdrawnil \clwWidth5107\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx4320
+\clvertalc \clshdrawnil \clwWidth10152\clftsWidth3 \clbrdrt\brdrnil \clbrdrl\brdrnil \clbrdrb\brdrnil \clbrdrr\brdrnil \clpadt20 \clpadl20 \clpadb20 \clpadr20 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Quit lldb\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 quit\cell \lastrow\row
+\pard\pardeftab720\partightenfactor0
+\cf0 \
+6. Typical debug cycle after a code change\
+bash\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f4\i\fs26\fsmilli13333 \cf0 # Rebuild in Xcode (
+\f6 \uc0\u8984 
+\f4 B) so build/16ForthCLI is updated
+\f3\i0 \
+\
+cd /Users/thomaszimmer/Documents/XCodeProjects/16ForthCLI/build\
+lldb ./16ForthCLI\
+(lldb) breakpoint set --name XFILESIZE\
+(lldb) run\
+
+\f4\i # \'85 at ok prompt, type Forth that hits the breakpoint \'85
+\f3\i0 \
+(lldb) register read x0 x1\
+(lldb) c\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 If the binary changed while lldb was open:\
+text\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 process kill\
+run\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 or quit lldb and start again so it loads the new image.\
+\
+7. Run without the debugger\
+bash\
+\pard\pardeftab720\qc\partightenfactor0
+
+\fs22 \cf0 \
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26\fsmilli13333 \cf0 /Users/thomaszimmer/Documents/XCodeProjects/16ForthCLI/build/16ForthCLI\
+\pard\pardeftab720\partightenfactor0
+
+\f1\fs24 \cf0 \
+8. Notes specific to your setup\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls2\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 Debug the copied binary under build/, not only the DerivedData path, if that is what the Run Script updates. \
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 Forth input is typed in the same terminal where lldb shows ok. \
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 si until you see bl _host_file_op when checking C arguments. \
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 Underflow messages appear on the Forth console after a line finishes, not necessarily inside a CODE word.\
+\pard\pardeftab720\partightenfactor0
+\cf0 Save this somewhere outside the terminal (Notes, a DEBUG.md in the project, etc.) so it survives closing the window.\
+}
