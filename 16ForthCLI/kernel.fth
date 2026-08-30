@@ -10,8 +10,8 @@ CREATE PAD 256 ALLOT
 : 2DUP  OVER OVER ;
 : 2DROP DROP DROP ;
 : ROT   >R SWAP R> SWAP ;
-: 1+    1 + ;
-: 1-    1 - ;
+I: 1+    1 + ;
+I: 1-    1 - ;
 : NEGATE  0 SWAP - ;
 : 2SWAP  ROT >R ROT R> ;
 
@@ -24,11 +24,11 @@ CREATE PAD 256 ALLOT
 8 CONSTANT CELL
 32 CONSTANT BL
 
-: CELL+ CELL + ;
-: CELLS CELL * ;
+I: CELL+ CELL + ;
+I: CELLS CELL * ;
 
 \ --- Logic (built on CODE 0= 0< < AND INVERT) -------------------------------
-: =    - 0= ;
+I: =    - 0= ;
 : <>   = INVERT ;
 : >    SWAP < ;
 : 0<>  0= INVERT ;
@@ -88,7 +88,12 @@ CREATE PAD 256 ALLOT
          REPEAT
      THEN DROP CR ;
 
-\ --- Inline enable/disable
+\ --- Inline enable/disable -------------------------------------------------
+\ Build/kernel stays INLINE-OFF (threaded, SEE-friendly).
+\ App workflow: develop with INLINE-OFF; later INLINE-ON and recompile so
+\ new : words are whole-word native. Marked I:/CODE leaves paste or macro-
+\ expand (nested I: ok); anything else is a native trampoline call.
+\ D: (asm) saves INLINE?, forces OFF for that definition, restores on ;.
 : INLINE-ON   -1 INLINE? ! ;
 : INLINE-OFF   0 INLINE? ! ;
 
@@ -106,11 +111,12 @@ CREATE PAD 256 ALLOT
         >LINK @
     REPEAT DROP R> DROP CR ;
 
-\ --- Smoke tests ------------------------------------------------------------
- INLINE-ON
+\ --- Smoke tests (left INLINE-OFF so the image boots debuggable) ------------
 : SQUARE  DUP * ;
- INLINE-OFF
 : TEST    5 SQUARE . CR ;
+
+\ After load, user may:  INLINE-ON  and redefine app words for speed.
+\ Or wrap a single threaded definition:  D: DEBUGGY ... ;
 
 \ S" hi" TYPE CR
 \ TEST

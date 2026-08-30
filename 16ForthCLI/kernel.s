@@ -79,6 +79,26 @@
     ldr  x19, [x23], #8
 .endm
 
+// Preserve AAPCS64 callee-saved regs — Forth uses x19–x24 as VM state.
+.macro SAVE_C_CALLEE
+    stp  x29, x30, [sp, #-96]!
+    mov  x29, sp
+    stp  x19, x20, [sp, #16]
+    stp  x21, x22, [sp, #32]
+    stp  x23, x24, [sp, #48]
+    stp  x25, x26, [sp, #64]
+    stp  x27, x28, [sp, #80]
+.endm
+
+.macro RESTORE_C_CALLEE
+    ldp  x27, x28, [sp, #80]
+    ldp  x25, x26, [sp, #64]
+    ldp  x23, x24, [sp, #48]
+    ldp  x21, x22, [sp, #32]
+    ldp  x19, x20, [sp, #16]
+    ldp  x29, x30, [sp], #96
+.endm
+
 .macro BOOT_WORD name, help, imm, code
     .pushsection __DATA,__bootword,regular
     .quad .Lname_\@, .Lhelp_\@, \imm, \code
@@ -117,17 +137,31 @@ cfa_does_rt:    .quad 0
 cfa_slit:       .quad 0
 cfa_branch:     .quad 0
 cfa_0branch:    .quad 0
+cfa_paren_inline: .quad 0
 quit_ready:     .quad 0
 interp_lr:      .quad 0
+in_interpret:   .quad 0          // 1 while _interpret_run is active
+embed_mode:     .quad 0          // 1 = GUI/host eval (QUIT/ABORT return to C, no readline)
+embed_c_sp:     .quad 0          // C SP after SAVE_C_CALLEE in kernel_eval (abort unwind)
 file_o1:        .quad 0
 file_o2:        .quad 0
 inline_var:         .quad 0      // 0 = threaded :,  -1 = native/inline :
 compiling_native:   .quad 0
+inline_region:      .quad 0      // -1 = mid-colon [INLINE]...[THREAD] fragment
+dcolon_flag:        .quad 0      // -1 = ;/ABORT should restore INLINE? from dcolon_saved
+dcolon_saved:       .quad 0      // INLINE? value saved by D:
+emit_hook:          .quad 0      // void (*)(int c)
+emit_buf_hook:      .quad 0      // void (*)(const char *buf, size_t n)
+vm_dsp:             .quad 0      // saved DSP across C returns (embed host)
+vm_rsp:             .quad 0      // saved RSP across C returns
 code_here:      .quad 0          // next free byte in the JIT buffer
 
 .align 3
 restart_cfa:    .quad XRESTART
 restart_cell:   .quad restart_cfa
+// Trampoline IP for returning from ITC word called from JIT (_native_exec_xt).
+native_ret_xt:  .quad XNATIVE_RET
+native_ret_ip:  .quad native_ret_xt
 
 .section __DATA,__bootword,regular
 .align 3
@@ -255,18 +289,20 @@ XOVER_END:
 BOOT_WORD "EMIT", "EMIT ( c -- )", 0, XEMIT
 XEMIT:
     DPOP x0
-    strb w0, [sp, #-16]!
-    mov  x0, #1
-    mov  x1, sp
-    mov  x2, #1
-    mov  x16, #4
-    svc  #0x80
-    add  sp, sp, #16
+    stp  x19, x21, [sp, #-32]!
+    stp  x22, x23, [sp, #16]
+    bl   _putchar
+    ldp  x22, x23, [sp, #16]
+    ldp  x19, x21, [sp], #32
     NEXT
 
-BOOT_WORD "ABORT", "ABORT ( i*x -- ) clear stacks, interpret", 0, XABORT
+BOOT_WORD "ABORT", "ABORT ( i*x -- ) empty stacks, then QUIT", 0, XABORT
 XABORT:
     b    _abort
+
+BOOT_WORD "QUIT", "QUIT ( -- ) empty return stack, interpret; embed returns to host", 0, XQUIT
+XQUIT:
+    b    _do_quit
 
 // ============================================================================
 // Bootstrap compiler / dictionary words
@@ -324,13 +360,43 @@ XIMMEDIATE:
 
 BOOT_WORD ":", ": ( \"name\" -- ) start colon definition", 0, XCOLON
 XCOLON:
+    mov  x20, #0                     // not I:
+    b    _colon_common
+
+BOOT_WORD "I:", "I: ( \"name\" -- ) colon marked INLINE (macro)", 0, XICOLON
+XICOLON:
+    mov  x20, #1                     // set FL_INLINE on header
+    b    _colon_common
+
+// D: — define with INLINE temporarily off (threaded/debuggable), restore on ; / ABORT.
+BOOT_WORD "D:", "D: ( \"name\" -- ) colon with INLINE off until ;", 0, XDCOLON
+XDCOLON:
+    adrp x0, dcolon_flag@page
+    add  x0, x0, dcolon_flag@pageoff
+    ldr  x1, [x0]
+    cbnz x1, 1f                      // already in D: — just start colon
+    adrp x1, inline_var@page
+    add  x1, x1, inline_var@pageoff
+    ldr  x2, [x1]
+    adrp x3, dcolon_saved@page
+    add  x3, x3, dcolon_saved@pageoff
+    str  x2, [x3]
+    str  xzr, [x1]                   // INLINE-OFF for this definition
+    mov  x2, #-1
+    str  x2, [x0]                    // pending restore
+1:  mov  x20, #0                     // not I: (plain DOCOL, SEE-friendly)
+    b    _colon_common
+
+_colon_common:
     bl   _word
     cbz  x0, _colon_fail
     bl   _counted_to_cstr
     adrp x1, empty_help@page
     add  x1, x1, empty_help@pageoff
-    mov  x2, #0
-    adrp x3, DOCOL@page
+    mov  x2, xzr
+    cbz  x20, 1f
+    mov  x2, #FL_INLINE              // I: → FFA inline bit (macro)
+1:  adrp x3, DOCOL@page
     add  x3, x3, DOCOL@pageoff
     bl   _header_build
 
@@ -360,10 +426,16 @@ XCOLON:
     add  x0, x0, compiling_native@pageoff
     mov  x1, #-1
     str  x1, [x0]
+    adrp x0, inline_region@page
+    add  x0, x0, inline_region@pageoff
+    str  xzr, [x0]                  // whole-word native, not a region
     b    2f
 
 1:  adrp x0, compiling_native@page
     add  x0, x0, compiling_native@pageoff
+    str  xzr, [x0]
+    adrp x0, inline_region@page
+    add  x0, x0, inline_region@pageoff
     str  xzr, [x0]
 
 2:  adrp x0, state_var@page
@@ -385,9 +457,14 @@ XSEMI:
     add  x1, x1, native_epi_end@pageoff
     sub  x1, x1, x0
     bl   _emit_bytes
+    // Mid-colon region: also compile EXIT into the threaded wrapper.
+    adrp x0, inline_region@page
+    add  x0, x0, inline_region@pageoff
+    ldr  x1, [x0]
+    str  xzr, [x0]
+    cbnz x1, 1f
     b    2f
-1:  // existing compile EXIT xt
-
+1:  // compile EXIT xt
     adrp x0, cfa_exit@page
     add  x0, x0, cfa_exit@pageoff
     ldr  x0, [x0]
@@ -397,7 +474,19 @@ XSEMI:
     adrp x0, state_var@page
     add  x0, x0, state_var@pageoff
     str  xzr, [x0]
-    NEXT
+    // D: restore previous INLINE?
+    adrp x0, dcolon_flag@page
+    add  x0, x0, dcolon_flag@pageoff
+    ldr  x1, [x0]
+    cbz  x1, 3f
+    str  xzr, [x0]
+    adrp x0, dcolon_saved@page
+    add  x0, x0, dcolon_saved@pageoff
+    ldr  x1, [x0]
+    adrp x0, inline_var@page
+    add  x0, x0, inline_var@pageoff
+    str  x1, [x0]
+3:  NEXT
 
 // INLINE? lives in asm; expose it:
 // add CODE words or:
@@ -586,13 +675,32 @@ XUNTIL:
     bl   _compile_cell
     NEXT
 
-BOOT_WORD "WHILE", "WHILE ( -- dest hole )", FL_IMM, XWHILE
+BOOT_WORD "WHILE", "WHILE ( orig -- orig hole ) leave if false", FL_IMM, XWHILE
 XWHILE:
-    // IF
     adrp x0, compiling_native@page
     add  x0, x0, compiling_native@pageoff
     ldr  x0, [x0]
-    cbnz x0, _die                  // native WHILE later
+    cbz  x0, 1f
+    // native: same as IF, then SWAP with BEGIN dest → (hole dest)
+    movz x0, #0x86C0
+    movk x0, #0xF840, lsl #16       // ldr x0,[x22],#8
+    bl   _emit_u32
+    adrp x1, code_here@page
+    add  x1, x1, code_here@pageoff
+    ldr  x0, [x1]                   // &cbz
+    movz x2, #0x0000
+    movk x2, #0xB400, lsl #16       // cbz x0, .+0
+    stp  x0, xzr, [sp, #-16]!
+    mov  x0, x2
+    bl   _emit_u32
+    ldr  x0, [sp], #16              // hole
+    DPUSH x0
+    ldr  x0, [x22]
+    ldr  x1, [x22, #8]
+    str  x1, [x22]
+    str  x0, [x22, #8]
+    NEXT
+1:  // threaded: IF then SWAP
     adrp x0, cfa_0branch@page
     add  x0, x0, cfa_0branch@pageoff
     ldr  x0, [x0]
@@ -603,27 +711,45 @@ XWHILE:
     DPUSH x0
     mov  x0, #0
     bl   _compile_cell
-    // SWAP the two compile-time cells
     ldr  x0, [x22]
     ldr  x1, [x22, #8]
     str  x1, [x22]
     str  x0, [x22, #8]
     NEXT
 
-BOOT_WORD "REPEAT", "REPEAT ( dest hole -- )", FL_IMM, XREPEAT
+BOOT_WORD "REPEAT", "REPEAT ( hole dest -- )", FL_IMM, XREPEAT
 XREPEAT:
     adrp x0, compiling_native@page
     add  x0, x0, compiling_native@pageoff
     ldr  x0, [x0]
-    cbnz x0, _die
-    // AGAIN: compile BRANCH, comma dest (TOS after WHILE is dest)
+    cbz  x0, 1f
+    // native: B to BEGIN (AGAIN), then patch WHILE cbz to here (THEN)
+    DPOP x1                         // dest = BEGIN
+    adrp x0, code_here@page
+    add  x0, x0, code_here@pageoff
+    ldr  x0, [x0]                   // &B
+    str  x1, [sp, #-16]!
+    movz x2, #0x0000
+    movk x2, #0x1400, lsl #16       // b .+0
+    str  x0, [sp, #-16]!
+    mov  x0, x2
+    bl   _emit_u32
+    ldr  x1, [sp], #16              // instr
+    ldr  x0, [sp], #16              // dest
+    bl   _patch_rel
+    DPOP x1                         // WHILE hole
+    adrp x0, code_here@page
+    add  x0, x0, code_here@pageoff
+    ldr  x0, [x0]
+    bl   _patch_rel
+    NEXT
+1:  // threaded: AGAIN then THEN
     adrp x0, cfa_branch@page
     add  x0, x0, cfa_branch@pageoff
     ldr  x0, [x0]
     bl   _compile_cell
     DPOP x0
     bl   _compile_cell
-    // THEN: patch hole
     DPOP x1
     adrp x0, here_ptr@page
     add  x0, x0, here_ptr@pageoff
@@ -902,26 +1028,86 @@ XSQUOTE:
     str  x3, [x2]
     NEXT
 
+// (INLINE) — threaded runtime for a mid-colon native fragment.
+// Body layout: (INLINE) xt, abs-addr of JIT fragment (no native_pro; we RPUSH).
+BOOT_WORD "(INLINE)", "(INLINE) ( -- ) run following native fragment", 0, XPARENINLINE
+XPARENINLINE:
+    ldr  x0, [x19], #8
+    RPUSH
+    br   x0
+
 BOOT_WORD "[INLINE]", "[INLINE] ( -- ) native compile", FL_IMM, XBRACKETINLINE
 XBRACKETINLINE:
+    adrp x0, state_var@page
+    add  x0, x0, state_var@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 1f
+    // Compiling: start a native fragment inside a threaded colon.
+    adrp x0, compiling_native@page
+    add  x0, x0, compiling_native@pageoff
+    ldr  x0, [x0]
+    cbnz x0, 2f                     // already native — no-op
+    adrp x0, cfa_paren_inline@page
+    add  x0, x0, cfa_paren_inline@pageoff
+    ldr  x0, [x0]
+    bl   _compile_cell
+    adrp x1, code_here@page
+    add  x1, x1, code_here@pageoff
+    ldr  x0, [x1]
+    cbz  x0, _die
+    bl   _compile_cell              // absolute JIT entry address
+    adrp x0, compiling_native@page
+    add  x0, x0, compiling_native@pageoff
+    mov  x1, #-1
+    str  x1, [x0]
+    adrp x0, inline_region@page
+    add  x0, x0, inline_region@pageoff
+    str  x1, [x0]
+    NEXT
+1:  // Interpret: next : is a whole-word native colon.
     adrp x0, inline_var@page
     add  x0, x0, inline_var@pageoff
     mov  x1, #-1
     str  x1, [x0]
-    adrp x0, compiling_native@page
-    add  x0, x0, compiling_native@pageoff
-    str  x1, [x0]
     NEXT
+2:  NEXT
 
 BOOT_WORD "[THREAD]", "[THREAD] ( -- ) threaded compile", FL_IMM, XBRACKETTHREAD
 XBRACKETTHREAD:
+    adrp x0, state_var@page
+    add  x0, x0, state_var@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 1f
+    // Compiling: close mid-colon native fragment.
+    adrp x0, compiling_native@page
+    add  x0, x0, compiling_native@pageoff
+    ldr  x1, [x0]
+    cbz  x1, 2f
+    adrp x2, inline_region@page
+    add  x2, x2, inline_region@pageoff
+    ldr  x3, [x2]
+    cbz  x3, 2f                     // whole-word native: ignore mid-body [THREAD]
+    str  xzr, [x0]                  // compiling_native = 0
+    str  xzr, [x2]                  // inline_region = 0
+    adrp x0, native_epi@page
+    add  x0, x0, native_epi@pageoff
+    adrp x1, native_epi_end@page
+    add  x1, x1, native_epi_end@pageoff
+    sub  x1, x1, x0
+    bl   _emit_bytes
+    NEXT
+1:  // Interpret: next : is threaded.
     adrp x0, inline_var@page
     add  x0, x0, inline_var@pageoff
     str  xzr, [x0]
     adrp x0, compiling_native@page
     add  x0, x0, compiling_native@pageoff
     str  xzr, [x0]
+    adrp x0, inline_region@page
+    add  x0, x0, inline_region@pageoff
+    str  xzr, [x0]
     NEXT
+2:  NEXT
 
 BOOT_WORD "BYE", "BYE ( -- ) exit process", 0, XBYE
 XBYE:
@@ -1286,10 +1472,109 @@ XRESTART:
 // ============================================================================
 // Helpers
 // ============================================================================
-_sys_write:
+
+// void kernel_set_emit(void (*fn)(int c))
+.globl _kernel_set_emit
+_kernel_set_emit:
+    adrp x1, emit_hook@page
+    add  x1, x1, emit_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// void kernel_set_emit_buf(void (*fn)(const char *buf, size_t n))
+.globl _kernel_set_emit_buf
+_kernel_set_emit_buf:
+    adrp x1, emit_buf_hook@page
+    add  x1, x1, emit_buf_hook@pageoff
+    str  x0, [x1]
+    ret
+
+// _putchar: w0 = character. Prefer emit_hook; else write(1).
+_putchar:
+    stp  x29, x30, [sp, #-16]!
+    adrp x1, emit_hook@page
+    add  x1, x1, emit_hook@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 1f
+    blr  x1
+    ldp  x29, x30, [sp], #16
+    ret
+1:
+    sub  sp, sp, #16
+    strb w0, [sp]
     mov  x0, #1
+    mov  x1, sp
+    mov  x2, #1
     mov  x16, #4
     svc  #0x80
+    add  sp, sp, #16
+    ldp  x29, x30, [sp], #16
+    ret
+
+// _sys_write: x1 = buf, x2 = len. Prefer emit_buf_hook, else per-byte emit_hook, else write(1).
+_sys_write:
+    stp  x29, x30, [sp, #-48]!
+    stp  x19, x20, [sp, #16]
+    stp  x21, x22, [sp, #32]
+    mov  x19, x1                   // buf
+    mov  x20, x2                   // len
+    adrp x0, emit_buf_hook@page
+    add  x0, x0, emit_buf_hook@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 1f
+    cbz  x20, 3f
+    mov  x1, x20
+    mov  x2, x0
+    mov  x0, x19
+    blr  x2
+    b    3f
+1:
+    cbz  x20, 3f
+0:
+    adrp x0, emit_hook@page
+    add  x0, x0, emit_hook@pageoff
+    ldr  x0, [x0]
+    cbz  x0, 2f
+    ldrb w1, [x19], #1
+    mov  x21, x0
+    mov  w0, w1
+    blr  x21
+    sub  x20, x20, #1
+    cbnz x20, 0b
+    b    3f
+2:
+    cbz  x20, 3f
+    mov  x0, #1
+    mov  x1, x19
+    mov  x2, x20
+    mov  x16, #4
+    svc  #0x80
+3:
+    ldp  x21, x22, [sp, #32]
+    ldp  x19, x20, [sp, #16]
+    ldp  x29, x30, [sp], #48
+    ret
+
+// Save / restore DSP+RSP for embed hosts that return to C between evals.
+_vm_save_stacks:
+    adrp x0, vm_dsp@page
+    add  x0, x0, vm_dsp@pageoff
+    str  x22, [x0]
+    adrp x0, vm_rsp@page
+    add  x0, x0, vm_rsp@pageoff
+    str  x23, [x0]
+    ret
+
+_vm_restore_stacks:
+    adrp x0, vm_dsp@page
+    add  x0, x0, vm_dsp@pageoff
+    ldr  x22, [x0]
+    adrp x0, vm_rsp@page
+    add  x0, x0, vm_rsp@pageoff
+    ldr  x23, [x0]
+    // Rebuild &latest (x24) — address is stable
+    adrp x24, latest_var@page
+    add  x24, x24, latest_var@pageoff
     ret
 
 _compile_cell:
@@ -1650,6 +1935,12 @@ _boot_cache:
     add  x1, x1, cfa_0branch@pageoff
     bl   _cache_one
 
+    adrp x0, cnt_paren_inline@page
+    add  x0, x0, cnt_paren_inline@pageoff
+    adrp x1, cfa_paren_inline@page
+    add  x1, x1, cfa_paren_inline@pageoff
+    bl   _cache_one
+
     ldp  x29, x30, [sp], #16
     ret
 
@@ -1660,6 +1951,10 @@ _interpret_run:
     adrp x1, interp_lr@page
     add  x1, x1, interp_lr@pageoff
     str  x30, [x1]
+    adrp x1, in_interpret@page
+    add  x1, x1, in_interpret@pageoff
+    mov  x0, #1
+    str  x0, [x1]
     b    _interpret_loop
 
 _interpret_loop:
@@ -1743,6 +2038,9 @@ _undef_current:
     b    _abort
     
 _interpret_done:
+    adrp x1, in_interpret@page
+    add  x1, x1, in_interpret@pageoff
+    str  xzr, [x1]
     adrp x1, interp_lr@page
     add  x1, x1, interp_lr@pageoff
     ldr  x30, [x1]
@@ -1780,27 +2078,105 @@ _stack_overflow:
     bl   _sys_write
     b    _abort
 
+// ABORT: empty data + return stacks, leave compile state, then QUIT.
 _abort:
+    // If we were compiling, unlink the incomplete definition (LFA @ CFA-16).
+    adrp x0, state_var@page
+    add  x0, x0, state_var@pageoff
+    ldr  x1, [x0]
+    cbz  x1, 1f
+    adrp x2, latest_var@page
+    add  x2, x2, latest_var@pageoff
+    ldr  x3, [x2]
+    cbz  x3, 1f
+    ldr  x3, [x3, #-16]
+    str  x3, [x2]
+1:  str  xzr, [x0]                  // STATE = 0
+    adrp x0, compiling_native@page
+    add  x0, x0, compiling_native@pageoff
+    str  xzr, [x0]
+    adrp x0, inline_region@page
+    add  x0, x0, inline_region@pageoff
+    str  xzr, [x0]
+    // If D: was open, restore prior INLINE?; else leave INLINE? alone.
+    adrp x0, dcolon_flag@page
+    add  x0, x0, dcolon_flag@pageoff
+    ldr  x1, [x0]
+    cbz  x1, 2f
+    str  xzr, [x0]
+    adrp x0, dcolon_saved@page
+    add  x0, x0, dcolon_saved@pageoff
+    ldr  x1, [x0]
+    adrp x0, inline_var@page
+    add  x0, x0, inline_var@pageoff
+    str  x1, [x0]
+2:  adrp x22, data_stack@page
+    add  x22, x22, data_stack@pageoff
+    add  x22, x22, #DSTACK_SIZE
+    adrp x23, return_stack@page
+    add  x23, x23, return_stack@pageoff
+    add  x23, x23, #RSTACK_SIZE
+    b    _do_quit
+
+// QUIT: empty return stack, interpret state. ANS does not empty the data stack.
+// Like 64Forth: under embed_mode return to the host; else enter the CLI loop.
+// Does not clear INLINE? — user INLINE-ON survives errors / QUIT.
+_do_quit:
     adrp x0, state_var@page
     add  x0, x0, state_var@pageoff
     str  xzr, [x0]
     adrp x0, compiling_native@page
     add  x0, x0, compiling_native@pageoff
     str  xzr, [x0]
+    adrp x0, inline_region@page
+    add  x0, x0, inline_region@pageoff
+    str  xzr, [x0]
+    adrp x0, dcolon_flag@page
+    add  x0, x0, dcolon_flag@pageoff
+    ldr  x1, [x0]
+    cbz  x1, 1f
+    str  xzr, [x0]
+    adrp x0, dcolon_saved@page
+    add  x0, x0, dcolon_saved@pageoff
+    ldr  x1, [x0]
     adrp x0, inline_var@page
     add  x0, x0, inline_var@pageoff
-    str  xzr, [x0]
-    adrp x22, data_stack@page
-    add  x22, x22, data_stack@pageoff
-    add  x22, x22, #DSTACK_SIZE
+    str  x1, [x0]
+1:
     adrp x23, return_stack@page
     add  x23, x23, return_stack@pageoff
     add  x23, x23, #RSTACK_SIZE
+
+    adrp x0, embed_mode@page
+    add  x0, x0, embed_mode@pageoff
+    ldr  x0, [x0]
+    cbnz x0, _embed_quit_return
+
     adrp x0, quit_ready@page
     add  x0, x0, quit_ready@pageoff
     ldr  x0, [x0]
     cbz  x0, _die
     b    _quit_loop
+
+// GUI/host: finish this kernel_eval without unbalanced-C-stack ret via interp_lr.
+// Abort often happens deep in bl helpers; restoring embed_c_sp matches 64Forth.
+_embed_quit_return:
+    adrp x0, in_interpret@page
+    add  x0, x0, in_interpret@pageoff
+    str  xzr, [x0]
+    bl   _vm_save_stacks
+    mov  x0, #0
+    // fall through
+
+// Restore the SAVE_C_CALLEE frame saved in embed_c_sp and return x0 to host.
+_embed_ret_x0:
+    adrp x1, embed_c_sp@page
+    add  x1, x1, embed_c_sp@pageoff
+    ldr  x1, [x1]
+    cbz  x1, _die
+    mov  sp, x1
+    RESTORE_C_CALLEE
+    ret
 
 // ============================================================================
 // helpers for inlineable
@@ -1938,7 +2314,10 @@ _emit_native_lit:
     ret
 
 // ============================================================================
-// xt in x0. If compiling_native && INLINE bit && len>0, copy body; else , xt
+// xt in x0.
+// Native: INLINE CODE → paste body; INLINE colon (I:) → macro-expand;
+//         else emit a call back into the ITC engine.
+// Threaded: INLINE colon → macro-expand; else ,
 // ============================================================================
 _compile_word:                   // x0 = xt
     stp  x29, x30, [sp, #-32]!
@@ -1947,27 +2326,161 @@ _compile_word:                   // x0 = xt
     adrp x1, compiling_native@page
     add  x1, x1, compiling_native@pageoff
     ldr  x1, [x1]
-    cbz  x1, 9f
+    cbz  x1, 20f                 // threaded
+
+    // ---- native ----
     ldr  x2, [x19, #-8]
-    tbz  x2, #62, 8f
+    tbz  x2, #62, 15f            // no INLINE bit → call
     ldr  x0, [x19]
-    bl   _inline_len             // x1 = len
-    cbz  x1, 8f
+    bl   _inline_len             // CODE leaf?
+    cbz  x1, 12f
     ldr  x0, [x19]
     bl   _emit_bytes
-    b    10f
-8:  // not inlineable inside native colon
-    adrp x1, str_noinline@page
-    add  x1, x1, str_noinline@pageoff
-    ldr  x2, [x1], #8           // if you use option-B strings
-    bl   _sys_write
-    b    _abort                 // or _undef / abort definition
-9:  mov  x0, x19
+    b    30f
+12: // INLINE colon (I:)? macro-expand if DOCOL
+    ldr  x0, [x19]
+    adrp x1, DOCOL@page
+    add  x1, x1, DOCOL@pageoff
+    cmp  x0, x1
+    b.ne 15f
+    mov  x0, x19
+    bl   _macro_expand_colon
+    b    30f
+15: mov  x0, x19
+    bl   _emit_native_call
+    b    30f
+
+20: // ---- threaded ----
+    ldr  x2, [x19, #-8]
+    tbz  x2, #62, 25f
+    ldr  x0, [x19]
+    adrp x1, DOCOL@page
+    add  x1, x1, DOCOL@pageoff
+    cmp  x0, x1
+    b.ne 25f
+    mov  x0, x19
+    bl   _macro_expand_colon
+    b    30f
+25: mov  x0, x19
     bl   _compile_cell
-10: ldp  x19, x20, [sp, #16]
+30: ldp  x19, x20, [sp, #16]
     ldp  x29, x30, [sp], #32
     ret
-    
+
+// Expand I:/INLINE colon body (xt in x0). LIT cells are re-compiled as literals.
+_macro_expand_colon:
+    stp  x29, x30, [sp, #-32]!
+    stp  x19, x20, [sp, #16]
+    add  x20, x0, #8                 // body pointer
+1:  ldr  x19, [x20], #8              // next xt
+    adrp x0, cfa_exit@page
+    add  x0, x0, cfa_exit@pageoff
+    ldr  x0, [x0]
+    cmp  x19, x0
+    b.eq 9f
+    adrp x0, cfa_lit@page
+    add  x0, x0, cfa_lit@pageoff
+    ldr  x0, [x0]
+    cmp  x19, x0
+    b.eq 2f
+    mov  x0, x19
+    bl   _compile_word
+    b    1b
+2:  ldr  x0, [x20], #8               // literal value
+    adrp x1, compiling_native@page
+    add  x1, x1, compiling_native@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 3f
+    bl   _emit_native_lit
+    b    1b
+3:  str  x0, [sp, #-16]!
+    adrp x0, cfa_lit@page
+    add  x0, x0, cfa_lit@pageoff
+    ldr  x0, [x0]
+    bl   _compile_cell
+    ldr  x0, [sp], #16
+    bl   _compile_cell
+    b    1b
+9:  ldp  x19, x20, [sp, #16]
+    ldp  x29, x30, [sp], #32
+    ret
+
+// Emit movz/movk sequence loading imm64 in x0 into register rd (x1 = rd 0..31)
+_emit_load64_rd:                     // x0=imm, x1=rd
+    stp  x29, x30, [sp, #-48]!
+    stp  x19, x20, [sp, #16]
+    str  x21, [sp, #32]
+    mov  x19, x0
+    mov  x20, x1                     // rd
+    // movz rd, #b0
+    and  x0, x19, #0xFFFF
+    movz x2, #0x0000
+    movk x2, #0xD280, lsl #16
+    orr  x0, x2, x0, lsl #5
+    orr  x0, x0, x20
+    bl   _emit_u32
+    // movk rd, #b1, lsl #16
+    lsr  x0, x19, #16
+    and  x0, x0, #0xFFFF
+    movz x2, #0x0000
+    movk x2, #0xF280, lsl #16
+    orr  x0, x2, x0, lsl #5
+    orr  x0, x0, #(1 << 21)
+    orr  x0, x0, x20
+    bl   _emit_u32
+    lsr  x0, x19, #32
+    and  x0, x0, #0xFFFF
+    movz x2, #0x0000
+    movk x2, #0xF280, lsl #16
+    orr  x0, x2, x0, lsl #5
+    orr  x0, x0, #(2 << 21)
+    orr  x0, x0, x20
+    bl   _emit_u32
+    lsr  x0, x19, #48
+    and  x0, x0, #0xFFFF
+    movz x2, #0x0000
+    movk x2, #0xF280, lsl #16
+    orr  x0, x2, x0, lsl #5
+    orr  x0, x0, #(3 << 21)
+    orr  x0, x0, x20
+    bl   _emit_u32
+    ldr  x21, [sp, #32]
+    ldp  x19, x20, [sp, #16]
+    ldp  x29, x30, [sp], #48
+    ret
+
+// JIT: load xt into x0, &_native_exec_xt into x16, blr x16
+_emit_native_call:                   // x0 = xt
+    stp  x29, x30, [sp, #-32]!
+    str  x19, [sp, #16]
+    mov  x19, x0
+    mov  x1, #0                      // rd = x0
+    bl   _emit_load64_rd
+    adrp x0, _native_exec_xt@page
+    add  x0, x0, _native_exec_xt@pageoff
+    mov  x1, #16                     // rd = x16
+    bl   _emit_load64_rd
+    movz x0, #0x0200
+    movk x0, #0xD63F, lsl #16        // blr x16
+    bl   _emit_u32
+    ldr  x19, [sp, #16]
+    ldp  x29, x30, [sp], #32
+    ret
+
+// Enter ITC word xt (x0) from JIT; return to LR in JIT after word completes.
+.globl _native_exec_xt
+_native_exec_xt:
+    str  x30, [x23, #-8]!            // RPUSH JIT resume
+    adrp x19, native_ret_ip@page
+    add  x19, x19, native_ret_ip@pageoff
+    mov  x21, x0
+    ldr  x1, [x21]
+    br   x1
+
+XNATIVE_RET:
+    ldr  x0, [x23], #8               // RPOP JIT resume
+    br   x0
+
 // ============================================================================
 // Native colon prologue/epilogue
 // ============================================================================
@@ -1995,7 +2508,7 @@ native_epi_end:
 // ============================================================================
 .globl _kernel_cold_start
 _kernel_cold_start:
-    stp  x29, x30, [sp, #-16]!
+    SAVE_C_CALLEE
     adrp x22, data_stack@page
     add  x22, x22, data_stack@pageoff
     add  x22, x22, #DSTACK_SIZE
@@ -2039,35 +2552,64 @@ _kernel_cold_start:
     add  x0, x0, quit_ready@pageoff
     mov  x1, #1
     str  x1, [x0]
-    ldp  x29, x30, [sp], #16
+    bl   _vm_save_stacks
+    RESTORE_C_CALLEE
     ret
 
 .globl _kernel_eval
 _kernel_eval:
-    stp  x29, x30, [sp, #-16]!
+    SAVE_C_CALLEE
+    // Abort/QUIT may jump here with a deep C stack; remember this frame.
+    mov  x2, sp
+    adrp x3, embed_c_sp@page
+    add  x3, x3, embed_c_sp@pageoff
+    str  x2, [x3]
+    // x0=line, x1=n — stash across restore
+    stp  x0, x1, [sp, #-16]!
+    // Like 64Forth: mark embed so QUIT/ABORT return here, not into readline.
+    adrp x0, embed_mode@page
+    add  x0, x0, embed_mode@pageoff
+    mov  x1, #1
+    str  x1, [x0]
+    bl   _vm_restore_stacks
+    ldp  x0, x1, [sp], #16
     bl   _set_source
     bl   _interpret_run
+    bl   _vm_save_stacks
     mov  x0, #0
-    ldp  x29, x30, [sp], #16
+    RESTORE_C_CALLEE
     ret
 
 .globl _kernel_data_depth
 _kernel_data_depth:
     adrp x0, data_stack@page
     add  x0, x0, data_stack@pageoff
-    add  x0, x0, #DSTACK_SIZE
-    sub  x0, x0, x22
+    add  x0, x0, #DSTACK_SIZE          // empty
+    adrp x1, vm_dsp@page
+    add  x1, x1, vm_dsp@pageoff
+    ldr  x1, [x1]
+    cbz  x1, 1f
+    sub  x0, x0, x1
     lsr  x0, x0, #3
     ret
+1:
+    mov  x0, #0
+    ret
 
+// CLI entry (clang / 16ForthCLI). The .app uses Swift @main + kernel_eval.
 .globl _main
 _main:
     stp  x29, x30, [sp, #-16]!
     bl   _forth_io_init
     bl   _kernel_cold_start
+    // TTY REPL: QUIT/ABORT must enter readline, not embed return.
+    adrp x0, embed_mode@page
+    add  x0, x0, embed_mode@pageoff
+    str  xzr, [x0]
     b    _quit_loop
 
 _quit_loop:
+    bl   _vm_restore_stacks
     bl   _check_data_stack
     cbnz x0, _abort
     adrp x0, input_buffer@page
@@ -2081,6 +2623,7 @@ _quit_loop:
     add  x0, x0, input_buffer@pageoff
     bl   _set_source
     bl   _interpret_run
+    bl   _vm_save_stacks
     b    _quit_loop
 
 _exit0:
@@ -2133,8 +2676,10 @@ str_over:
     .ascii " stack overflow\n"
 .align 3
 str_noinline:
-    .quad 16
-    .ascii " cannot inline\n"
+    .quad 17
+    .ascii " cannot inline: "
+str_noinline_nl:
+    .ascii "\n"
 
 .align 3
 cnt_lit:        .byte 3, 'L','I','T'
@@ -2150,3 +2695,5 @@ cnt_slit:       .byte 4, '(','S','"',')'
 cnt_branch:     .byte 6, 'B','R','A','N','C','H'
 .align 3
 cnt_0branch:    .byte 7, '0','B','R','A','N','C','H'
+.align 3
+cnt_paren_inline: .byte 8, '(','I','N','L','I','N','E',')'
